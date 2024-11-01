@@ -1,6 +1,3 @@
-/**********************************************************************
- Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
-***********************************************************************/
 #include "FSM/State_MPC.h"
 #include <iomanip>
 
@@ -10,11 +7,11 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
       _contact(ctrlComp->contact), _robModel(ctrlComp->robotModel),
       _balCtrl(ctrlComp->balCtrl)
 {
-    t1_prev = std::chrono::high_resolution_clock::now(); // initialise the timer for MPC benchmarking
+    t1_prev = std::chrono::high_resolution_clock::now(); // 初始化t1，用于计算mpc所需时间
     _gait = new GaitGenerator(ctrlComp); 
     _gaitHeight = 0.08;
 
-    // this is for unitree A1
+    // unitree A1 
     _Kpp = Vec3(20, 20, 100).asDiagonal(); 
     _Kdp = Vec3(20, 20, 20).asDiagonal();
     _kpw = 400;
@@ -31,7 +28,7 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
 
     max[0] = 1000.0;
     max[1] = 1000.0;
-    max[2] = -3.0 * _mass * g;
+   max[2] = -3.0 * _mass * g;
 
     min[0] = -1000.0;
     min[1] = -1000.0;
@@ -48,10 +45,15 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
 
 void State_MPC::setWeight()
 {
+
+    // Here Q_diag and R_diag is 
+
     Eigen::Matrix<double, 1, nx> Q_diag;
     Eigen::Matrix<double, 1, nu> R_diag;
 
-    Q_diag << 270.0, 270.0, 1.0, // 欧拉角(roll pitch yaw)
+    // 滚转角Φ(roll) about x, 俯仰角θ(pitch) aboout y, 偏航角ψ(yaw) about z. 
+
+    Q_diag << 270.0, 270.0, 1.0, // 欧拉角(rpy)
             5.0, 5.0, 270.0, // pCoM
             1.0, 1.0, 20.0, // w
             20.0, 20.0, 40.0, //vcom 
@@ -274,17 +276,17 @@ void State_MPC::calcQQd()
         // _velFeet2BGoal.col(i) = _G2B_RotMat * (_velFeetGlobalGoal.col(i) - _velBody - _B2G_RotMat * (skew(_lowState->getGyro()) * _posFeet2B.col(i)) );  //  c.f formula (6.12)
     }
 
-    _qGoal = vec12ToVec34(_robModel->getQ(_posFeet2BGoal, FrameType::BODY)); // _qGoal 各个关节的目标角度
-    _qdGoal = vec12ToVec34(_robModel->getQd(_posFeet2B, _velFeet2BGoal, FrameType::BODY)); // _qdGoal 各个关节的目标角速度
+    _qGoal = vec12ToVec34(_robModel->getQ(_posFeet2BGoal, FrameType::BODY)); // 各个关节的目标角度
+    _qdGoal = vec12ToVec34(_robModel->getQd(_posFeet2B, _velFeet2BGoal, FrameType::BODY)); // 各个关节的目标角速度
 }
 
 #undef inverse
 void State_MPC::calcFe()
 {
     // 当前状态：欧拉角、机身位置、角速度、机身速度
-    X_cur << _G2B_RotMat.eulerAngles(2, 1, 0), _posBody, _lowState->getGyroGlobal(), _velBody;
-   // std::cout << "X_cur" << std::endl 
-   //          << X_cur << std::endl;
+    currentStates << _G2B_RotMat.eulerAngles(2, 1, 0), _posBody, _lowState->getGyroGlobal(), _velBody;
+   // std::cout << "Mpc_States" << std::endl 
+   //          << Mpc_States << std::endl;
 
     // 设置期望状态
     for (int i = 0; i < (mpc_N - 1); i++)
@@ -297,99 +299,155 @@ void State_MPC::calcFe()
     for (int j = 0; j < 3; j++)
         Xd(nx * (mpc_N - 1) + 9 + j) = _vCmdGlobal(j);
 
-    // 构造Ac
+    
+    // 单刚体动力学假设下的 Ac 和 Bc (continuous) 矩阵
+    // Ac
+    Ac.setZero();
+    R_curz = Rz3(_yaw);
+    Ac.block<3, 3>(0, 6) = R_curz[i].transpose();
+    Ac.block<3, 3>(3, 9) = I3;
+    Ac(11, nx) = 1;
 
-    for (int i = 0; i < mpc_N; i++)
-    {
-        R_curz[i] = Rz3(_yaw);
-        Ac[i].setZero();
-        Ac[i].block<3, 3>(0, 6) = R_curz[i].transpose();
-        Ac[i].block<3, 3>(3, 9) = Eigen::MatrixXd::Identity(3, 3);
-        A[i] = Eigen::MatrixXd::Identity(nx, nx) + _ctrlComp->dt * Ac[i];
+    // Bc
+    Mat3 Ic_W_inv;
+    Ic_W_inv = (R_curz * Ic * R_curz.transpose()).inverse(); // Inverse of A1 inertia in world coordinates
+    Bc.setZero();
+    for (int i > 0; i < 4; i++){
+        Bc.block<3, 3>(6, 3 * i) =
+                Ic_W_inv * CrossProduct_A(_posFeet2BGlobal.block<3, 1>(0, i));
+        Bc.block<3, 3>(9, 3 * i) =
+                (1 / _mass) * I3;
     }
 
-    // 构造Bc
-    for (int i = 0; i < mpc_N; i++)
-    {
-        Mat3 Ic_W_inv;
-        Ic_W_inv = (R_curz[i] * Ic * R_curz[i].transpose()).inverse();
-        Bc[i].setZero();
-        Bc[i].block<3, 3>(6, 0) = Ic_W_inv * CrossProduct_A(_posFeet2BGlobal.block<3, 1>(0, 0));
-        Bc[i].block<3, 3>(6, 3) = Ic_W_inv * CrossProduct_A(_posFeet2BGlobal.block<3, 1>(0, 1));
-        Bc[i].block<3, 3>(6, 6) = Ic_W_inv * CrossProduct_A(_posFeet2BGlobal.block<3, 1>(0, 2));
-        Bc[i].block<3, 3>(6, 9) = Ic_W_inv * CrossProduct_A(_posFeet2BGlobal.block<3, 1>(0, 3));
-        Bc[i].block<3, 3>(9, 0) = I3 / _mass;
-        Bc[i].block<3, 3>(9, 3) = I3 / _mass;
-        Bc[i].block<3, 3>(9, 6) = I3 / _mass;
-        Bc[i].block<3, 3>(9, 9) = I3 / _mass;
-        Bc[i]((nx - 1), (nu - 1)) = 1.0;
-        B[i] = _ctrlComp->dt * Bc[i];
-    }
+    // 通过 Ad = I + Ac * dt，Bd = Bc * dt 对 Ac，Bc 进行离散化
+    Ad.setZero();
+    Bd.setZero();
 
-    // 构造Aqp
+    Ad = Eigen::Matrix<double, nx, nx>::Identity() + Ac * _ctrlComp->dt;
+    Bd = Bc * _ctrlComp->dt;
+
+    // 构造 MPC 预测时域内的 QP
+    // standard QP formulation
+    // minimize 1/2 * x' * H * x + q' * x
+    // subject to lb <= c * x <= ub
+    // H: hessian
+    // q: gradient
+    // c: linear constraints
+
+    // Aqp = [A,
+    //         A^2,
+    //         A^3,
+    //         ...
+    //         A^k]'
+
+    // Bqp = [A^0*B(0),           0,          0,         ...     0 
+    //         A^1*B(0),       B(1),
+    //         A^2*B(0),     A*B(1),       B(2),         ...     0
+    //         ...
+    //         A^(k-1)*B(0), A^(k-2)*B(1), A^(k-3)*B(2), ... B(k-1)]
+    // Eigen::Matrix<double, nx, nu> tmp_matrix; 
+
     Aqp.setZero();
-    for (int i = 0; i < mpc_N; i++)
-        Aqp.block<nx, nx>(i * nx, 0) = Eigen::MatrixXd::Identity(nx, nx);
-    for (int i = 0; i < mpc_N; i++)
-        for (int j = 0; j < i + 1; j++)
-            Aqp.block<nx, nx>(i * nx, 0) = A[j] * Aqp.block<nx, nx>(i * nx, 0);
-
-    // 构造Bqp
-    Aqp1.setZero();
-    Bqp1.setZero();
     Bqp.setZero();
-    for (int i = 0; i < mpc_N; i++)
-        for (int j = 0; j < i + 1; j++)
-            Aqp1.block<nx, nx>(i * nx, j * nx) = Eigen::MatrixXd::Identity(nx, nx);
-    for (int i = 1; i < mpc_N; i++)
-        for (int j = 0; j < i; j++)
-            for (int k = j + 1; k < (i + 1); k++)
-                Aqp1.block<nx, nx>(i * nx, j * nx) = A[k] * Aqp1.block<nx, nx>(i * nx, j * nx);
+    Bd_list.setZero();
 
-    for (int i = 0; i < mpc_N; i++)
-        Bqp1.block<nx, nu>(i * nx, i * nu) = B[i];
-    Eigen::MatrixXd Bqp11 = Eigen::MatrixXd::Zero(nu * mpc_N, nu * ch);
-    Bqp11.setZero();
-    Bqp11.block<nu * ch, nu * ch>(0, 0) = Eigen::MatrixXd::Identity(nu * ch, nu * ch);
-    for (int i = 0; i < (mpc_N - ch); i++)
-        Bqp11.block<nu, nu>(nu * ch + i * nu, nu * (ch - 1)) = Eigen::MatrixXd::Identity(nu, nu);
+    for (int i = 0; i < mpc_N; ++i) {
+        if (i == 0) {
+            Aqp.block<nx, nx>(nx * i, 0) = Ad;
+        }
+        else {
+            Aqp.block<nx, nx>(nx * i, 0) = 
+            Aqp.block<nx, nx>(nx * (i-1), 0) * Ad;
+        }
+        for (int j = 0; j < i + 1; ++j) {
+            if (i-j == 0) {
+                Bqp.block<nx, nx>(nx * i, nu * j) =
+                    Bd_list.block<nx, nu>(j * nx, 0);
+            } else {
+                Bqp.block<nx, nu>(nx * i, nu * j) =
+                        Aqp.block<nx,nx>(nx * (i-j-1), 0) 
+                        * Bd_list.block<nx, nu>(j * nx, 0);
+            }
+        }
+    }
 
-    Eigen::MatrixXd B_tmp = Eigen::MatrixXd::Zero(nx * mpc_N, nu * ch);
-    B_tmp = Bqp1 * Bqp11;
-    Bqp = Aqp1 * B_tmp;
+    Eigen::Matrix<double, nx * mpc_N, nx * mpc_N> dense_hessian;
+    dense_hessian = (Bqp.transpose() * Q * Bqp); 
+    dense_hessian += R;
+    hessian = dense_hessian.sparseView();
 
-    // 二次规划一般形式 1/2 x^T*H*x + x^T * c
-    H_ = 2 * (Bqp.transpose() * Q * Bqp + R);
-    c_ = 2 * Bqp.transpose() * Q * (Aqp * X_cur - Xd);
+    gradient.setZero();
+    lb.setZero();
+    ub.setZero();
+    
+    Eigen::Matrix<double, nx * mpc_N, 1> tmp_vec = Aqp * currentStates; // 
+    tmp_vec -= Xd;
+    gradient = Bqp.transpose() * Q * tmp_vec;
 
-    Constraints();
+
+
+    // 还没搞Q和R
+
+   
+    ConstraintsSetup();
     solveQP();
 
     _forceFeetGlobal = vec12ToVec34(F_);
 }
 
-void State_MPC::Constraints()
+void State_MPC::ConstraintsSetup()
 {
+/* QuadProg++求解器的约束表现形式如下：
+
+    min 0.5 * x' G x + g0' x
+    CE^T x + ce0 = 0 
+    CI^T x + ci0 >= 0 
+	 
+    The matrix and vectors dimensions are as follows:
+     G: (nu * horizon) * (nu * horizon) , 
+     g0: (nu * horizon) * 1 ,
+				
+	 CE: nu * horizon * p , 
+     ce0: p ,
+				
+	 CI: nu * horizon * m , 
+     ci0: m ,
+
+     x: nu * horizon , (the control input: _F)
+
+        constraints: 
+
+        [ 1, 0, miu,            [fx,
+         -1, 0, miu, (fx)        
+         0,  1, miu,         *   fy,        >= 0; 触地腿，这里将摩擦锥近似成线性
+         0, -1, miu, (fy)
+         0,  0,  1;  (fz) ]      fz; ]
+
+        
+        I3 * F = 0 摆动腿
+        
+     */
+
     int contactLegNum = 0;
     for (int i(0); i < 4; ++i)
     {
         if ((*_contact)(i) == 1)
         {
-            contactLegNum += 1;
+            contactLegNum += 1;  
         }
     }
 
-    CI_.resize(5 * contactLegNum * ch, nu * ch);
-    ci0_.resize(5 * contactLegNum * ch);
-    CE_.resize((3 * (4 - contactLegNum) + 1) * ch, nu * ch);
-    ce0_.resize((3 * (4 - contactLegNum) + 1) * ch);
+    CI_.resize(5 * contactLegNum * mpc_N, nu * mpc_N);
+    ci0_.resize(5 * contactLegNum * mpc_N);
+    CE_.resize((3 * (4 - contactLegNum) + 1) * mpc_N, nu * mpc_N);
+    ce0_.resize((3 * (4 - contactLegNum) + 1) * mpc_N);
 
     CI_.setZero();
     ci0_.setZero();
     CE_.setZero();
     ce0_.setZero();
 
-    for (int k = 0; k < ch; k++)
+    for (int k = 0; k < mpc_N; k++)
     {
         int ceID = 0;
         int ciID = 0;
@@ -413,7 +471,7 @@ void State_MPC::Constraints()
 
 void State_MPC::solveQP()
 {
-    int n = nu * ch;
+    int n = nu * mpc_N;
     int m = ce0_.size();
     int p = ci0_.size();
 
@@ -429,7 +487,7 @@ void State_MPC::solveQP()
     {
         for (int j = 0; j < n; ++j)
         {
-            G[i][j] = H_(i, j);
+            G[i][j] = hessian(i, j);
         }
     }
 
@@ -451,7 +509,7 @@ void State_MPC::solveQP()
 
     for (int i = 0; i < n; ++i)
     {
-        g0[i] = c_[i];
+        g0[i] = gradient[i];
     }
 
     for (int i = 0; i < m; ++i)
@@ -471,13 +529,11 @@ void State_MPC::solveQP()
     std::chrono::duration<double, std::milli> ms_double_1 = t1 - t1_prev;
     t1_prev = t1;
 
-    std::cout << "time for each mpc loop: " << ms_double_1.count() << "ms" << std::endl; // around 2.5 ms
-    
-    // it runs for about 0.1 to 0.2 ms, meaning 
-    
+    std::cout << "time for each mpc loop: " << ms_double_1.count() << "ms" << std::endl; 
+
     for (int i = 0; i < 12; ++i)
     {
-        F_[i] = -x[i];
+        F_[i] = -x[i]; // 只应用 N = 1 的计算值。
     }
 }
 
