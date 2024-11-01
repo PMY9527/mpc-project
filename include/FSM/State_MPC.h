@@ -1,27 +1,26 @@
-/**********************************************************************
- Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.
-***********************************************************************/
 #ifndef MPC_H
 #define MPC_H
 
 #include "FSM/FSMState.h"
 #include "Gait/GaitGenerator.h"
 #include "control/BalanceCtrl.h"
-#include "thirdParty/quadProgpp/QuadProg++.hh"
-#include "thirdParty/quadProgpp/Array.hh"
+//#include "thirdParty/quadProgpp/QuadProg++.hh"
+#include "OsqpEigen/OsqpEigen.h"
+//#include "thirdParty/quadProgpp/Array.hh"
+#include <Eigen/Dense>
 #include <chrono>
 #include <vector>
 #include <iostream>
 
 
-static const int mpc_N = 10; // 计算mpc_N步状态
-static const int ch = 3;     // 为了让Bqp的维数不那么庞大，减小运算量，将Bqp的列数由13*10减小为13*3
-static const int nx = 12;    // 状态向量的维数
-static const int nu = 13;    // 控制输入的维数
+static const int mpc_N = 10; // MPC 预测区间
+// static const int ch = 3;     // 为了让Bqp的维数不那么庞大，减小运算量，将Bqp的列数由13*10减小为13*3
+static const int nx = 13;    // 状态向量的维数
+static const int nu = 12;    // 控制输入的维数
 static const int nc = 20;    // 约束的维数
 
-static const double NEGATIVE_NUMBER = -1000000.0; // 负无穷
-static const double POSITIVE_NUMBER = 1000000.0;  // 正无穷
+static const double NEGATIVE_NUMBER = -1000000.0;
+static const double POSITIVE_NUMBER = 1000000.0;
 
 static const double g = -9.8;
 static const double miu = 0.5; // 摩擦系数
@@ -42,7 +41,6 @@ private:
     void calcQQd();
     void calcCmd();
     virtual void getUserCmd();
-    bool checkStepOrNot();
     void calcFe();
 
     GaitGenerator *_gait;
@@ -92,17 +90,27 @@ private:
     Eigen::Matrix<double, 5, 3> miuMat;
 
     Eigen::Matrix<double, 3, 3> Ic;
-    Eigen::Matrix<double, nx, 1> X_cur;
+    Eigen::Matrix<double, nx, 1> currentStates;
     Eigen::Matrix<double, nx * mpc_N, 1> Xd;
-    Eigen::Matrix<double, 3, 3> R_curz[mpc_N];
-    Eigen::Matrix<double, nx, nx> Ac[mpc_N], A[mpc_N];
-    Eigen::Matrix<double, nx, nu> Bc[mpc_N], B[mpc_N];
-
+    Eigen::Matrix<double, 3, 3> R_curz;
+    Eigen::Matrix<double, nx, nx> Ac;
+    Eigen::Matrix<double, nx, nu> Bc;
     Eigen::Matrix<double, nx * mpc_N, nx> Aqp;
-    Eigen::Matrix<double, nx * mpc_N, nx * mpc_N> Aqp1;
-    Eigen::Matrix<double, nx * mpc_N, nu * mpc_N> Bqp1;
-    Eigen::Matrix<double, nx * mpc_N, nu * ch> Bqp;
-    Eigen::Matrix<double, nu * ch, nu * ch> H_;
+    Eigen::Matrix<double, nx * mpc_N, nu> Bd_list;
+    Eigen::Matrix<double, nx * mpc_N, nu> Bqp;
+
+    // standard QP formulation
+    // minimize J = 1/2 * x' * H * x + q' * x
+    // subject to lb <= c * x <= ub
+    Eigen::SparseMatrix<double> hessian; // H
+    Eigen::SparseMatrix<double> linear_constraints; // c
+    Eigen::Matrix<double, nu * mpc_N, 1> gradient; // q
+    Eigen::Matrix<double, nc * mpc_N, 1> lb; // lb
+    Eigen::Matrix<double, nc * mpc_N, 1> ub; // ub
+
+
+
+    // Eigen::Matrix<double, nu * ch, nu * ch> H_;
     Eigen::Matrix<double, nu * ch, 1> c_;
     Eigen::Matrix<double, nx * mpc_N, nx * mpc_N> Q;
     Eigen::Matrix<double, nu * ch, nu * ch> R;
@@ -112,11 +120,10 @@ private:
     Eigen::Matrix<double, nc * ch, nu * ch> C_qp;
     Eigen::Matrix<double, nc * ch, 1> lbC_qp;
     Eigen::Matrix<double, nc * ch, 1> ubC_qp;
-    Eigen::Matrix<double, -1, -1> CI_, CE_;
+    Eigen::Matrix<double, -1, -1> CI_, CE_; // 设置 -1 为动态矩阵
     Eigen::VectorXd ci0_, ce0_;
 
     Vec12 F_;
-    int tcounter;
 
     quadprogpp::Matrix<double> G, CE, CI;
     quadprogpp::Vector<double> g0, ce0, ci0, x;
@@ -127,7 +134,7 @@ private:
 
     void setWeight();
     void solveQP();
-    void Constraints();
+    void ConstraintsSetup();
 };
 
 #endif // MPC_H
