@@ -121,7 +121,7 @@ void BalanceCtrl::solveQP()
     int n = _F.size();
     int m = _ce0.size();
     int p = _ci0.size();
-    // std::cout << "n:" << n << "m:" << m << "p:" << p << std::endl;
+    std::cout << "n:" << n << "m:" << m << "p:" << p << std::endl;
 
     G.resize(n, n);
     CE.resize(n, m);
