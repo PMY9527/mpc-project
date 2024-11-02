@@ -372,13 +372,12 @@ void State_MPC::calcFe()
             }
         }
     }
-    
+
     dense_hessian.resize(nu * mpc_N, nu * mpc_N);
     dense_hessian.setZero();
     dense_hessian = (Bqp.transpose() * Q * Bqp); 
     dense_hessian += R;
-    hessian = dense_hessian;
-    //hessian = dense_hessian.sparseView();
+    hessian = dense_hessian.sparseView();
 
     gradient.setZero();
     //lb.setZero();
@@ -439,41 +438,44 @@ void State_MPC::ConstraintsSetup()
         for 3 contact legs and mpc_N = 2:
         CI' * x looks like:
 
-        [miumat(5,3),      0(5,3),  0(5,3),   0(5,3),  /  miumat(5,3)， 0(5,3),       0(5,3),   0(5,3),    [f0(3,1),            stance leg0 at k = 0  
-          0(5,3),     miumat(5,3);  0(5,3),   0(5,3),  /   0(5,3),  miumat(5,3),      0(5,3),   0(5,3),     f1(3,1),            stance leg1 at k = 0       
-          0(5,3),     0(5,3),   miumat(5,3),  0(5,3),  /   0(5,3),      0(5,3),  miumat(5,3);   0(5,3),     f2(3,1),            stance leg2 at k = 0  
-          0(5,3),     0(5,3),        0(5,3),  0(5,3),  /   0(5,3),      0(5,3),        0(5,3),  0(5,3),  *  f3(3.1),            SWING  LEG3 at k = 0 /// 
-            ----------- k = 0 -----------                   ----------- k = 1 -----------                   f0(3,1),            stance leg0 at k = 1    
-                                                                                                            f1(3,1),            stance leg1 at k = 1
-                                                                                                            f2(3,1),            stance leg2 at k = 1 
-                                                                                                            f3(3,1);]           SWING  LEG3 at k = 1 ///
-        CI' rows = 20;
+                        
+        [miumat(5,3),      0(5,3),  0(5,3), 0(5,3)，  /   0(5,3)，   0(5,3),   0(5,3),  0(5,3)，         [f0(3,1),            stance leg0 at k = 0  
+          0(5,3),     miumat(5,3);  0(5,3), 0(5,3)，  /   0(5,3),   0(5,3),   0(5,3),  0(5,3)，           f1(3,1),            stance leg1 at k = 0       
+          0(5,3),     0(5,3),  miumat(5,3), 0(5,3)，  /   0(5,3),  0(5,3),  0(5,3),  0(5,3)，             f2(3,1),            stance leg2 at k = 0
+                                                                                                          f3(3,1),            SWING  leg3 at k = 0      
+          ------------------------------------------------------------------------------------------------------------------------
+          0(5,3),      0(5,3),  0(5,3), 0(5,3)，   /  miumat(5,3)，0(5,3)，  0(5,3),  0(5,3),              f0(3,1),            stance leg0 at k = 1
+          0(5,3),     0(5,3);   0(5,3), 0(5,3)，   /   0(5,3), miumat(5,3)， 0(5,3),  0(5,3),              f1(3,1),            stance leg1 at k = 1       
+          0(5,3),     0(5,3),   0(5,3), 0(5,3)，  /   0(5,3), 0(5,3)， miumat(5,3),  0(5,3);]              f2(3,1),            stance leg2 at k = 1 
+                                                                                                           f3(3,1);]           SWING  leg3 at k = 1    
+    
+        CI' rows = 5 * contactLegNum * mpc_N;
         CI' cols = nu * mpc_N;
 
-        CE' * x looks like: 
-
-        [ 0(3,3),     0(3,3),   0(3,3),  0(3,3),  /  0(3,3)， 0(3,3),   0(3,3),   0(3,3),              [f0(3,1),            stance leg0 at k = 0  
-          0(3,3),     0(3,3);   0(3,3),  0(3,3),  /  0(3,3),  0(3,3),   0(3,3),   0(3,3),               f1(3,1),            stance leg1 at k = 0       
-          0(3,3),     0(3,3),   0(3,3),  0(3,3),  /  0(3,3),  0(3,3),   0(3,3);   0(3,3),               f2(3,1),            stance leg2 at k = 0  
-          0(3,3),     0(3,3),   0(3,3),  I(3,3),  /  0(3,3),  0(3,3),   0(3,3),   I(3,3),      *        f3(3.1),            SWING  LEG3 at k = 0 /// 
-            ----------- k = 0 -----------               ----------- k = 1 -----------                   f0(3,1),            stance leg0 at k = 1    
+        CE' * x looks like:                                                                             
+                                                                                                       [f0(3,1),            stance leg0 at k = 0 
+                                                                                                        f1(3,1),            stance leg1 at k = 0 
+                                                                                                        f2(3,1),            stance leg2 at k = 0  
+        [ 0(3,3),     0(3,3),   0(3,3),  I3(3,3),  /  0(3,3)， 0(3,3),   0(3,3),   0(3,3),              f3(3,1),             SWING leg3 at k = 0       
+        -----------------------------------------------------------------------------------------------------------              
+          0(3,3),     0(3,3),   0(3,3),  0(3,3),  /  0(3,3)， 0(3,3),   0(3,3),   I3(3,3);]             f0(3,1),            stance leg0 at k = 1    
                                                                                                         f1(3,1),            stance leg1 at k = 1
                                                                                                         f2(3,1),            stance leg2 at k = 1 
                                                                                                         f3(3,1);]           SWING  LEG3 at k = 1 /// 
-        CE' rows = 12;
+
+        CE' rows = (3 * swingLegNum) * mpc_N;
         CE' cols = nu * mpc_N;
                                                                                                 
-    
-          dimension of CI': (20, nu * mpc_N)
-          dimension of F:    (nu * mpc_N, 1)
-          dimension of CE': (12, nu * mpc_N)
+          dimension of CI': (5 * contactLegNum * mpc_N, nu * mpc_N)
+          dimension of F:   (nu * mpc_N, 1)
+          dimension of CE': (3 * swingLegNum * mpc_N, nu * mpc_N)
         
 
      */
 
     int contactLegNum = 0;
     int swingLegNum = 0;
-    for (int i(0); i < 4; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         if ((*_contact)(i) == 1)
         {
@@ -497,21 +499,24 @@ void State_MPC::ConstraintsSetup()
     {
         int ceID = 0;
         int ciID = 0;
-        for (int i = 0; i < _contact.size(); ++i) {
-            if (_contact(i) == 1) { 
-                // 触地腿，填充摩擦锥约束
-                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat;
-                ciID++;
-            } else { 
-                // 摆动腿，填充固定力为0的约束
-                CE_.block<3, 3>(3 * swingLegNum * k + 3 * ceID, nu * k + 3 * i) = I3;
-                ceID++;
+        for (int i = 0; i < 4; ++i)
+        {
+            if ((*_contact)(i) == 1)
+            {
+                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat; // ? 
+                ++ciID;
             }
-        //CE_(3 * swingLegNum * k + 3 * swingLegNum, nu * k + nu - 1) = 1.0;
-        //ce0_[3 * swingLegNum * k + 3 * swingLegNum] = -g;
+            else
+            {
+                CE_.block<3, 3>((3 * (4 - contactLegNum) + 1) * k + 3 * ceID, nu * k + 3 * i) = I3; // ? 
+                ++ceID;
+            }
         }
+        CE_((3 * (4 - contactLegNum) + 1) * k + 3 * (4 - contactLegNum), nu * k + nu - 1) = 1.0;
+        ce0_[(3 * (4 - contactLegNum) + 1) * k + 3 * (4 - contactLegNum)] = -g;
     }
 }
+
 
 void State_MPC::solveQP()
 {
@@ -568,7 +573,7 @@ void State_MPC::solveQP()
 
     // std::cout << "n:" << n << "m:" << m << "p:" << p << std::endl;
     double value = solve_quadprog(G, g0, CE, ce0, CI, ci0, x);
-    //std::cout << "Hessian:" << hessian << std::endl;
+    
     auto t1 = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> ms_double_1 = t1 - t1_prev;
     t1_prev = t1;

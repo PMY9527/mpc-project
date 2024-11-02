@@ -17,7 +17,7 @@
 #include <iomanip>
 
 
-static const int mpc_N = 3; // MPC 预测区间
+static const int mpc_N = 10; // MPC 预测区间
 // static const int ch = 3;     // 为了让Bqp的维数不那么庞大，减小运算量，将Bqp的列数由13*10减小为13*3
 static const int nx = 13;    // 状态向量的维数
 static const int nu = 12;    // 控制输入的维数
