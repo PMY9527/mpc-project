@@ -52,8 +52,8 @@ void State_MPC::setWeight()
 
     // 滚转角Φ(roll) about x, 俯仰角θ(pitch) aboout y, 偏航角ψ(yaw) about z. 
 
-    Q_diag << 270.0, 270.0, 1.0, // 欧拉角
-            5.0, 5.0, 270.0, // pCoM
+    Q_diag << 270.0, 270.0, 1.0, // 欧拉角, zyx(ypr)
+            5.0, 5.0, 270.0, // pCoM，
             1.0, 1.0, 20.0, // w
             20.0, 20.0, 40.0, //vcom 
             0.0;
