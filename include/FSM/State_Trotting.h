@@ -25,8 +25,8 @@ private:
     void calcQQd();
     void calcCmd();
     virtual void getUserCmd();
-    void calcBalanceKp();
-    bool checkStepOrNot();
+    //void calcBalanceKp();
+    //bool checkStepOrNot();
 
     GaitGenerator *_gait;
     Estimator *_est;

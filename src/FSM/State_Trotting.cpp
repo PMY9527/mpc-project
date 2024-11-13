@@ -12,7 +12,7 @@ State_Trotting::State_Trotting(CtrlComponents *ctrlComp)
 {
     _gait = new GaitGenerator(ctrlComp);
 
-    _gaitHeight = 0.08;
+    _gaitHeight = 0.05;
 
 #ifdef ROBOT_TYPE_Go1
     _Kpp = Vec3(70, 70, 70).asDiagonal();
@@ -80,6 +80,8 @@ FSMStateName State_Trotting::checkChange()
 void State_Trotting::run()
 {
     _posBody = _est->getPosition();
+    std::cout << "z" << std::endl 
+              << _posBody(2) << std::endl;
     _velBody = _est->getVelocity();
     _posFeet2BGlobal = _est->getPosFeet2BGlobal();
     _posFeetGlobal = _est->getFeetPos();
@@ -100,15 +102,9 @@ void State_Trotting::run()
     calcTau();
     calcQQd();
 
-    if (checkStepOrNot())
-    {
-        _ctrlComp->setStartWave();
-    }
-    else
-    {
-        _ctrlComp->setAllStance();
-    }
-
+  
+    _ctrlComp->setStartWave();
+  
     _lowCmd->setTau(_tau);
     _lowCmd->setQ(vec34ToVec12(_qGoal));
     _lowCmd->setQd(vec34ToVec12(_qdGoal));
@@ -126,23 +122,6 @@ void State_Trotting::run()
     }
 }
 
-bool State_Trotting::checkStepOrNot()
-{
-    if ((fabs(_vCmdBody(0)) > 0.03) ||
-        (fabs(_vCmdBody(1)) > 0.03) ||
-        (fabs(_posError(0)) > 0.08) ||
-        (fabs(_posError(1)) > 0.08) ||
-        (fabs(_velError(0)) > 0.05) ||
-        (fabs(_velError(1)) > 0.05) ||
-        (fabs(_dYawCmd) > 0.20))
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
 
 void State_Trotting::setHighCmd(double vx, double vy, double wz)
 {
@@ -175,7 +154,7 @@ void State_Trotting::calcCmd()
 
     _pcd(0) = saturation(_pcd(0) + _vCmdGlobal(0) * _ctrlComp->dt, Vec2(_posBody(0) - 0.05, _posBody(0) + 0.05));
     _pcd(1) = saturation(_pcd(1) + _vCmdGlobal(1) * _ctrlComp->dt, Vec2(_posBody(1) - 0.05, _posBody(1) + 0.05));
-
+    _pcd(2) = 0.370;
     _vCmdGlobal(2) = 0;
 
     /* Turning */

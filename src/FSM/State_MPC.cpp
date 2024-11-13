@@ -1,12 +1,12 @@
 #include "FSM/State_MPC.h"
 
 State_MPC::State_MPC(CtrlComponents *ctrlComp)
-    : FSMState(ctrlComp, FSMStateName::MPC, "mpc"),
+    : FSMState(ctrlComp, FSMStateName::MPC, "mpc_quadprogpp"),
       _est(ctrlComp->estimator), _phase(ctrlComp->phase),
       _contact(ctrlComp->contact), _robModel(ctrlComp->robotModel),
       _balCtrl(ctrlComp->balCtrl)
 {
-    t1_prev = std::chrono::high_resolution_clock::now(); // 初始化t1，用于计算mpc所需时间
+    // t1_prev = std::chrono::high_resolution_clock::now(); // 初始化t1，用于计算mpc所需时间
     _gait = new GaitGenerator(ctrlComp); 
     _gaitHeight = 0.08;
 
@@ -24,27 +24,35 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
 
     _mass = _robModel->getRobMass();
     Ic = _robModel->getRobInertial();
-
-    max[0] = 180.0;
-    max[1] = 180.0;
-    max[2] = 180.0;
-    //max[2] = -3.0 * _mass * g;
-
-    min[0] = -180.0;
-    min[1] = -180.0;
-    min[2] = 0.0;
-
     miuMat << 1, 0, miu,
-        -1, 0, miu,
-        0, 1, miu,
-        0, -1, miu,
-        0, 0, 1;
+             -1, 0, miu,
+             0,  1, miu,
+             0, -1, miu,
+             0,  0,   1;
 
     setWeight();
+
 }
 
 void State_MPC::setWeight()
 {
+
+    /* 状态向量 
+     1. 滚转角 Φ (roll)
+     2. 俯仰角 θ (pitch)
+     3. 偏航角 ψ (yaw)
+     4. x CoM
+     5. y CoM
+     6. z CoM
+     7. dΦ
+     8. dθ
+     9. dψ
+     10. dx CoM
+     11. dy CoM
+     12. dz CoM
+     13. -g
+     */ 
+
     Q_diag.resize(1, nx);
     R_diag.resize(1, nu);
     Q_diag.setZero();
@@ -52,17 +60,18 @@ void State_MPC::setWeight()
 
     // 滚转角Φ(roll) about x, 俯仰角θ(pitch) aboout y, 偏航角ψ(yaw) about z. 
 
-    Q_diag << 270.0, 270.0, 1.0, // 欧拉角, zyx(ypr)
-            5.0, 5.0, 270.0, // pCoM，
-            1.0, 1.0, 20.0, // w
-            20.0, 20.0, 40.0, //vcom 
+    
+    Q_diag << 120.0, 160.0, 1.0, // eul, rpy
+            80.0, 80.0, 120.0, // pCoM
+            20.0, 20.0, 1.0, // w
+            20.0, 20.0, 20.0, //vcom 
             0.0;
-    R_diag <<   1.0, 1.0, 0.1, //
-                1.0, 1.0, 0.1, // 
-                1.0, 1.0, 0.1, // 
-                1.0, 1.0, 0.1; // 
 
-    R_diag = R_diag * 0.8 * 1e-3; 
+    R_diag <<   1.0, 1.0, 0.1, 
+                1.0, 1.0, 0.1, 
+                1.0, 1.0, 0.1,  
+                1.0, 1.0, 0.1; 
+    R_diag = R_diag * 0.8 * 1e-5; 
 
     Q_diag_N.resize(1, nx * mpc_N);
     R_diag_N.resize(1, nu * mpc_N);
@@ -100,7 +109,7 @@ State_MPC::~State_MPC()
 }
 
 void State_MPC::enter()
-{
+{   
     _pcd = _est->getPosition();
     _pcd(2) = -_robModel->getFeetPosIdeal()(2, 0);
     _vCmdBody.setZero();
@@ -109,8 +118,10 @@ void State_MPC::enter()
     _wCmdGlobal.setZero();
     _ctrlComp->ioInter->zeroCmdPanel();
     _gait->restart();
-    _forceFeetGlobal.setZero();
-    _tau.setZero();
+
+    _forceFeetGlobal <<  -0.008,   0.007,  -0.008,   0.007,
+                        -0.019,  -0.019,   0.002,   0.003,
+                        -25.620, -25.604, -25.987, -25.981;
 }
 
 void State_MPC::exit()
@@ -146,7 +157,7 @@ void State_MPC::run()
     _G2B_RotMat = _B2G_RotMat.transpose();
     _yaw = _lowState->getYaw();
     _dYaw = _lowState->getDYaw();
-
+    
     _userValue = _lowState->userValue;
 
     getUserCmd();
@@ -156,11 +167,9 @@ void State_MPC::run()
     _gait->run(_posFeetGlobalGoal, _velFeetGlobalGoal);
 
     calcTau();
-    calcQQd(); // q and qd 
-
+    calcQQd(); // q and qd
     _ctrlComp->setStartWave();
-
-    _lowCmd->setTau(_tau); // tau limit +_50 
+    _lowCmd->setTau(_tau);
     _lowCmd->setQ(vec34ToVec12(_qGoal));
     _lowCmd->setQd(vec34ToVec12(_qdGoal));
 
@@ -188,8 +197,8 @@ void State_MPC::setHighCmd(double vx, double vy, double wz)
 void State_MPC::getUserCmd()
 {
     /* Movement */
-    _vCmdBody(0) = invNormalize(_userValue.ly, _vxLim(0), _vxLim(1));
-    _vCmdBody(1) = -invNormalize(_userValue.lx, _vyLim(0), _vyLim(1));
+    _vCmdBody(0) = 0.5 * invNormalize(_userValue.ly, _vxLim(0), _vxLim(1));
+    _vCmdBody(1) = 0.5 * -invNormalize(_userValue.lx, _vyLim(0), _vyLim(1));
     _vCmdBody(2) = 0;
 
     /* Turning */
@@ -206,13 +215,12 @@ void State_MPC::calcCmd()
     _vCmdGlobal(0) = saturation(_vCmdGlobal(0), Vec2(_velBody(0) - 0.2, _velBody(0) + 0.2));
     _vCmdGlobal(1) = saturation(_vCmdGlobal(1), Vec2(_velBody(1) - 0.2, _velBody(1) + 0.2));
 
-    _pcd(0) = saturation(_pcd(0) + _vCmdGlobal(0) * _ctrlComp->dt, Vec2(_posBody(0) - 0.05, _posBody(0) + 0.05));
-    _pcd(1) = saturation(_pcd(1) + _vCmdGlobal(1) * _ctrlComp->dt, Vec2(_posBody(1) - 0.05, _posBody(1) + 0.05));
-
+    _pcd(0) = saturation(_pcd(0) + _vCmdGlobal(0) * d_time, Vec2(_posBody(0) - 0.05, _posBody(0) + 0.05));
+    _pcd(1) = saturation(_pcd(1) + _vCmdGlobal(1) * d_time, Vec2(_posBody(1) - 0.05, _posBody(1) + 0.05));
     _vCmdGlobal(2) = 0;
 
     /* Turning */
-    _yawCmd = _yawCmd + _dYawCmd * _ctrlComp->dt;
+    _yawCmd = _yawCmd + _dYawCmd * d_time;
 
     _Rd = rotz(_yawCmd);
     _wCmdGlobal(2) = _dYawCmd;
@@ -220,28 +228,10 @@ void State_MPC::calcCmd()
 
 void State_MPC::calcTau()
 {
-    _posError = _pcd - _posBody;
-    _velError = _vCmdGlobal - _velBody;
-
-    _ddPcd = _Kpp * _posError + _Kdp * _velError;
-    _dWbd = _kpw * rotMatToExp(_Rd * _G2B_RotMat) + _Kdw * (_wCmdGlobal - _lowState->getGyroGlobal());
-
-    _ddPcd(0) = saturation(_ddPcd(0), Vec2(-3, 3));
-    _ddPcd(1) = saturation(_ddPcd(1), Vec2(-3, 3));
-    _ddPcd(2) = saturation(_ddPcd(2), Vec2(-5, 5));
-
-    _dWbd(0) = saturation(_dWbd(0), Vec2(-40, 40));
-    _dWbd(1) = saturation(_dWbd(1), Vec2(-40, 40));
-    _dWbd(2) = saturation(_dWbd(2), Vec2(-10, 10));
-
     calcFe();
-
-    std::cout << "********forceFeetGlobal(MPC)********" << std::endl
-              << _forceFeetGlobal << std::endl;
-            
-    //std::cout << "********Tau(MPC)********" << std::endl
-    //          << _tau << std::endl;
-
+    
+    //std::cout << "********forceFeetGlobal(MPC)********" << std::endl
+    //          << _forceFeetGlobal << std::endl;
 
     for (int i(0); i < 4; ++i)
     {
@@ -274,22 +264,26 @@ void State_MPC::calcQQd()
     {
         _posFeet2BGoal.col(i) = _G2B_RotMat * (_posFeetGlobalGoal.col(i) - _posBody);
         _velFeet2BGoal.col(i) = _G2B_RotMat * (_velFeetGlobalGoal.col(i) - _velBody);
-        // _velFeet2BGoal.col(i) = _G2B_RotMat * (_velFeetGlobalGoal.col(i) - _velBody - _B2G_RotMat * (skew(_lowState->getGyro()) * _posFeet2B.col(i)) );  //  c.f formula (6.12)
     }
 
-    _qGoal = vec12ToVec34(_robModel->getQ(_posFeet2BGoal, FrameType::BODY)); // 各个关节的目标角度
-    _qdGoal = vec12ToVec34(_robModel->getQd(_posFeet2B, _velFeet2BGoal, FrameType::BODY)); // 各个关节的目标角速度
+    _qGoal = vec12ToVec34(_robModel->getQ(_posFeet2BGoal, FrameType::BODY)); // 关节的目标角度
+    _qdGoal = vec12ToVec34(_robModel->getQd(_posFeet2B, _velFeet2BGoal, FrameType::BODY)); // 关节的目标角速度
 }
 
 #undef inverse
 void State_MPC::calcFe()
 {
     // 当前状态：欧拉角、机身位置、角速度、机身速度
-    currentStates << _G2B_RotMat.eulerAngles(2, 1, 0), _posBody, _lowState->getGyroGlobal(), _velBody, -g;
-   // std::cout << "Mpc_States" << std::endl 
-   //          << Mpc_States << std::endl;
+    currentStates << _G2B_RotMat.eulerAngles(0, 1, 2), _posBody, _lowState->getGyroGlobal(), _velBody, -g;
+    //std::cout << "********euler angles rpy(MPC)********" << std::endl
+              //<< _G2B_RotMat.eulerAngles(0, 1, 2) << std::endl;
+    //std::cout << "_pcd" << std::endl 
+       //       << _pcd << std::endl;
+    //std::cout << "_posBody" << std::endl 
+              //<< _posBody << std::endl;
 
-    // 设置期望状态
+    Xd.setZero();
+    // 设置期望状态 Xd
     for (int i = 0; i < (mpc_N - 1); i++)
         Xd.block<nx, 1>(nx * i, 0) = Xd.block<nx, 1>(nx * (i + 1), 0);
         Xd(nx * (mpc_N - 1) + 2) = _yawCmd;
@@ -299,8 +293,9 @@ void State_MPC::calcFe()
         Xd(nx * (mpc_N - 1) + 6 + j) = _wCmdGlobal(j);
     for (int j = 0; j < 3; j++)
         Xd(nx * (mpc_N - 1) + 9 + j) = _vCmdGlobal(j);
-
-    
+        
+    std::cout << "********Xd(MPC)********" << std::endl
+              << Xd << std::endl;
     // 单刚体动力学假设下的 Ac 和 Bc (continuous) 矩阵
     // Ac
     Ac.setZero();
@@ -308,6 +303,7 @@ void State_MPC::calcFe()
     Ac.block<3, 3>(0, 6) = R_curz.transpose();
     Ac.block<3, 3>(3, 9) = I3;
     Ac(11, nu) = 1;
+    Ac(12, nu) = 1; 
 
     // Bc
     Mat3 Ic_W_inv;
@@ -324,30 +320,30 @@ void State_MPC::calcFe()
     Ad.setZero();
     Bd.setZero();
 
-    Ad = Eigen::Matrix<double, nx, nx>::Identity() + Ac * _ctrlComp->dt;
-    Bd = Bc * _ctrlComp->dt;
+    Ad = Eigen::Matrix<double, nx, nx>::Identity() + Ac * d_time;
+    Bd = Bc * d_time;
 
     // 构造 MPC 预测时域内的 QP
     // standard QP formulation
-    // minimize 1/2 * x' * H * x + q' * x
-    // subject to lb <= c * x <= ub
-    // H: hessian
-    // q: gradient
-    // c: linear constraints
+    // minimize J = 1/2 * x' * H * x + q' * x
+
+    // H: hessian             H = 2 * (Bqp.transpose() * Q * Bqp + R);
+    // q: gradient            q = 2 * Bqp.transpose() * Q * (Aqp * currentStates - Xd);
 
     // Aqp = [  A,
     //         A^2,
     //         A^3,
     //         ...
-    //         A^k]'
+    //         A^k]' 
+    // with a size of (nx * mpc_N, nx)
 
     // Bqp = [A^0*B(0),           0,          0,         ...     0 
     //         A^1*B(0),       B(1),
     //         A^2*B(0),     A*B(1),       B(2),         ...     0
     //         ...
-    //         A^(k-1)*B(0), A^(k-2)*B(1), A^(k-3)*B(2), ... B(k-1)]
-    // Eigen::Matrix<double, nx, nu> tmp_matrix; 
-
+    //         A^(k-1)*B(0), A^(k-2)*B(1), A^(k-3)*B(2), ... B(k-1)]  
+    // with a size of (nx * mpc_N, nu * mpc_N)
+    
     Bqp.resize(nx * mpc_N, nu * mpc_N);
     Aqp.setZero();
     Bqp.setZero();
@@ -361,13 +357,14 @@ void State_MPC::calcFe()
             Aqp.block<nx, nx>(nx * i, 0) = 
             Aqp.block<nx, nx>(nx * (i-1), 0) * Ad;
         }
+        Bd_list.block<nx, nu>(i * nx, 0) = Bd;
         for (int j = 0; j < i + 1; ++j) {
             if (i-j == 0) {
                 Bqp.block<nx, nu>(nx * i, nu * j) =
                     Bd_list.block<nx, nu>(j * nx, 0);
             } else {
                 Bqp.block<nx, nu>(nx * i, nu * j) =
-                        Aqp.block<nx,nx>(nx * (i-j-1), 0) 
+                        Aqp.block<nx,nx>(nx * (i - j -1), 0) 
                         * Bd_list.block<nx, nu>(j * nx, 0);
             }
         }
@@ -377,20 +374,17 @@ void State_MPC::calcFe()
     dense_hessian.setZero();
     dense_hessian = (Bqp.transpose() * Q * Bqp); 
     dense_hessian += R;
-    hessian = dense_hessian.sparseView();
 
     gradient.setZero();
-    //lb.setZero();
-    //ub.setZero();
     
-    Eigen::Matrix<double, nx * mpc_N, 1> tmp_vec = Aqp * currentStates; // 
+    Eigen::Matrix<double, nx * mpc_N, 1> tmp_vec = Aqp * currentStates; 
     tmp_vec -= Xd;
     gradient = Bqp.transpose() * Q * tmp_vec;
 
     ConstraintsSetup();
     solveQP();
-
     _forceFeetGlobal = vec12ToVec34(F_);
+
 }
 
 void State_MPC::ConstraintsSetup()
@@ -422,12 +416,12 @@ void State_MPC::ConstraintsSetup()
         [ 1, 0, miu,            [fx,
          -1, 0, miu, (fx)        
          0,  1, miu,         *   fy,        >= 0;    触地腿，这里将摩擦锥近似成线性;
-         0, -1, miu, (fy)                         每条触地腿腿有 5 个约束，摆动腿 3 个。
+         0, -1, miu, (fy)                            每条触地腿腿有 5 个约束
          0,  0,  1;  (fz) ]      fz; ]
         
         
         [1, 0, 0,      [fx,
-         0, 1, 0,   *   fy,  = 0；    摆动腿。
+         0, 1, 0,   *   fy,  = 0；    摆动腿, 3 个约束。
          0, 0, 1;]      fz;]                
 
         CI':
@@ -472,7 +466,6 @@ void State_MPC::ConstraintsSetup()
         
 
      */
-
     int contactLegNum = 0;
     int swingLegNum = 0;
     for (int i = 0; i < 4; ++i)
@@ -486,9 +479,9 @@ void State_MPC::ConstraintsSetup()
     }
 
     CI_.resize(5 * contactLegNum * mpc_N, nu * mpc_N); // CI'
-    CE_.resize((3 * swingLegNum) * mpc_N, nu * mpc_N); // CE'
+    CE_.resize(3 * swingLegNum * mpc_N, nu * mpc_N); // CE'
     ci0_.resize(5 * contactLegNum * mpc_N);
-    ce0_.resize((3 * swingLegNum) * mpc_N);
+    ce0_.resize(3 * swingLegNum * mpc_N);
 
     CI_.setZero();
     ci0_.setZero();
@@ -503,17 +496,15 @@ void State_MPC::ConstraintsSetup()
         {
             if ((*_contact)(i) == 1)
             {
-                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat; // ? 
+                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat; 
                 ++ciID;
             }
             else
             {
-                CE_.block<3, 3>((3 * (4 - contactLegNum) + 1) * k + 3 * ceID, nu * k + 3 * i) = I3; // ? 
+                CE_.block<3, 3>(3 * swingLegNum * k + 3 * ceID, nu * k + 3 * i) = I3;
                 ++ceID;
             }
         }
-        CE_((3 * (4 - contactLegNum) + 1) * k + 3 * (4 - contactLegNum), nu * k + nu - 1) = 1.0;
-        ce0_[(3 * (4 - contactLegNum) + 1) * k + 3 * (4 - contactLegNum)] = -g;
     }
 }
 
@@ -521,8 +512,8 @@ void State_MPC::ConstraintsSetup()
 void State_MPC::solveQP()
 {
     int n = nu * mpc_N;
-    int m = ce0_.size();
-    int p = ci0_.size();
+    int m = ce0_.size(); // 3 * swingLegNum * mpc_N
+    int p = ci0_.size(); // 5 * contactLegNum * mpc_N
 
     G.resize(n, n);
     CE.resize(n, m);
@@ -536,7 +527,7 @@ void State_MPC::solveQP()
     {
         for (int j = 0; j < n; ++j)
         {
-            G[i][j] = hessian(i, j);
+            G[i][j] = dense_hessian(i, j);
         }
     }
 
@@ -574,15 +565,16 @@ void State_MPC::solveQP()
     // std::cout << "n:" << n << "m:" << m << "p:" << p << std::endl;
     double value = solve_quadprog(G, g0, CE, ce0, CI, ci0, x);
     
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> ms_double_1 = t1 - t1_prev;
-    t1_prev = t1;
+    //auto t1 = std::chrono::high_resolution_clock::now();
+    //std::chrono::duration<double, std::milli> ms_double_1 = t1 - t1_prev;
+    //t1_prev = t1;
 
-    std::cout << "time for each mpc loop: " << ms_double_1.count() << "ms" << std::endl; 
+    //std::cout << "time for each mpc loop: " << ms_double_1.count() << "ms" << std::endl; 
 
     for (int i = 0; i < 12; ++i)
     {
-        F_[i] = -x[i]; // 只应用 N = 1 的计算值。
+        F_[i] = saturation(-x[i], Vec2(-60.0, 60.0)); // 只应用 N = 1 的计算值。这里限制了足端力的范围。
+                                                      // as soon as I set it to any larger numbers the solver meets nan I dont know why.
     }
 }
 
