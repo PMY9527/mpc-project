@@ -26,10 +26,10 @@ Put these three packages in the src folder of a ROS workspace. Paste my projects
 ```rosrun unitree_guide junior_ctrl```
    
 After starting the controller, the robot will lie on the ground of the simulator, then press the '2' key on the keyboard to switch the robot's finite state machine (FSM) from Passive(initial state) to FixedStand, then press the '6' key to switch the FSM from FixedStand to MPC, now you can press the 'w' 'a' 's' 'd' key to control the translation of the robot, and press the 'j' 'l' key to control the rotation of the robot. Press the Spacebar, the robot will stop and stand on the ground . (If there is no response, you need to click on the terminal opened for starting the controller and then repeat the previous operation)
-
 <p align="center">
-![](https://github.com/PMY9527/mpc-project/blob/main/illustration.gif)
+  <img src="https://github.com/PMY9527/mpc-project/blob/main/illustration.gif" alt="Illustration">
 </p>
+
 
 ## Current issues
 This controller is not perfect and I haven't spotted the issue. The robot is not able to trot exactly at where it is told, meaning it will have some displacements even if no instructions are made or after pressing the spacebar. You can have a look at the controller in ```include\FSM\State_MPC.h``` and ```src\FSM\State_MPC.cpp```. 
