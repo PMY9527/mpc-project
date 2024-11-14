@@ -582,21 +582,8 @@ void State_MPC::solveQP()
 
     for (int i = 0; i < 12; ++i)
     {
-        F_[i] = -x[i]; // 只应用 N = 1 的计算值。这里限制了足端力的范围。
-                                                      // as soon as I set it to any larger numbers the solver meets nan I dont know why.
+        F_[i] = -x[i]; 
     }
-
-    /*
-    for (int i = 0; i < nu * mpc_N; ++i)
-    {
-        Fqp[i] = -x[i]; 
-    }
-    */
-    /*
-    for (int i = 0; i < mpc_N; ++i) {
-        Fqp.segment(i * nu, nu) = F_;
-    }
-    */
     
 }
 
