@@ -165,7 +165,13 @@ void State_Trotting::calcCmd()
 }
 
 void State_Trotting::calcTau()
-{
+{       
+    std::cout << "********_pcd********" << std::endl
+              << _pcd << std::endl;
+    std::cout << "********_pcd********" << std::endl
+              << _vCmdGlobal << std::endl;
+
+
     _posError = _pcd - _posBody;
     _velError = _vCmdGlobal - _velBody;
 

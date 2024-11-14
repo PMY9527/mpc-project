@@ -12,7 +12,7 @@
 #include <iomanip>
 
 
-static const int mpc_N = 1; // MPC 预测区间
+static const int mpc_N = 5; // MPC 预测区间
 static const int nx = 13;    // 状态向量的维数
 static const int nu = 12;    // 控制输入的维数
 
@@ -20,7 +20,7 @@ static const double NEGATIVE_NUMBER = -1000000.0;
 static const double POSITIVE_NUMBER = 1000000.0;
 
 static const double g = 9.8;
-static const double miu = 0.5; // 摩擦系数
+static const double miu = 0.4; // friction coef.
 
 class State_MPC : public FSMState
 {
@@ -34,7 +34,7 @@ public:
     void setHighCmd(double vx, double vy, double wz);
 
 private:
-    double d_time = 0.0015;
+    double d_time = 0.002;
     void calcTau();
     void calcQQd();
     void calcCmd();
@@ -94,7 +94,7 @@ private:
     Eigen::Matrix<double, nx * mpc_N, nu> Bd_list;
     Eigen::MatrixXd Bqp;
     Eigen::MatrixXd dense_hessian;
-    Eigen::Matrix<double, nu * mpc_N, 1> gradient; // q
+    Eigen::Matrix<double, nu * mpc_N, 1> gradient, Fqp; // q
     Eigen::MatrixXd Q_diag;
     Eigen::MatrixXd R_diag;
     Eigen::MatrixXd Q_diag_N;

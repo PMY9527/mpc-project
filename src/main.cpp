@@ -66,7 +66,7 @@ int main(int argc, char **argv)
 
     CtrlComponents *ctrlComp = new CtrlComponents(ioInter);
     ctrlComp->ctrlPlatform = ctrlPlat;
-    ctrlComp->dt = 0.0015; // 0.002
+    ctrlComp->dt = 0.002; // 0.002
     ctrlComp->running = &running;
 
 #ifdef ROBOT_TYPE_A1

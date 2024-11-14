@@ -8,7 +8,7 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
 {
     // t1_prev = std::chrono::high_resolution_clock::now(); // 初始化t1，用于计算mpc所需时间
     _gait = new GaitGenerator(ctrlComp); 
-    _gaitHeight = 0.08;
+    _gaitHeight = 0.05;
 
     // unitree A1 
     _Kpp = Vec3(20, 20, 100).asDiagonal(); 
@@ -28,7 +28,7 @@ State_MPC::State_MPC(CtrlComponents *ctrlComp)
              -1, 0, miu,
              0,  1, miu,
              0, -1, miu,
-             0,  0,   1;
+             0,  0,  -1;
 
     setWeight();
 
@@ -61,17 +61,24 @@ void State_MPC::setWeight()
     // 滚转角Φ(roll) about x, 俯仰角θ(pitch) aboout y, 偏航角ψ(yaw) about z. 
 
     
-    Q_diag << 120.0, 160.0, 1.0, // eul, rpy
-            80.0, 80.0, 120.0, // pCoM
-            20.0, 20.0, 1.0, // w
-            20.0, 20.0, 20.0, //vcom 
+    Q_diag << 30.0, 30.0, 1.0, // eul, rpy
+            1.0, 1.0, 220.0, // pCoM
+            1.05, 1.05, 1.05, // w
+            20.0, 20.0, 10.0, //vcom 
             0.0;
-
+            /*
+            Q_diag << 20.0, 10.0, 1.0,
+            0.0, 0.0, 420.0, 
+            0.05, 0.05, 0.05, 
+            30.0, 30.0, 10.0, 
+            0.0; 
+            */
+               
     R_diag <<   1.0, 1.0, 0.1, 
                 1.0, 1.0, 0.1, 
                 1.0, 1.0, 0.1,  
                 1.0, 1.0, 0.1; 
-    R_diag = R_diag * 0.8 * 1e-5; 
+    R_diag = R_diag * 1e-6; 
 
     Q_diag_N.resize(1, nx * mpc_N);
     R_diag_N.resize(1, nu * mpc_N);
@@ -118,10 +125,7 @@ void State_MPC::enter()
     _wCmdGlobal.setZero();
     _ctrlComp->ioInter->zeroCmdPanel();
     _gait->restart();
-
-    _forceFeetGlobal <<  -0.008,   0.007,  -0.008,   0.007,
-                        -0.019,  -0.019,   0.002,   0.003,
-                        -25.620, -25.604, -25.987, -25.981;
+                        
 }
 
 void State_MPC::exit()
@@ -132,7 +136,7 @@ void State_MPC::exit()
 
 FSMStateName State_MPC::checkChange()
 {
-    if (_lowState->userCmd == UserCommand::L2_B || (_forceFeetGlobal.array() != _forceFeetGlobal.array()).any()) // if nan, quit to passive
+    if (_lowState->userCmd == UserCommand::L2_B || (_forceFeetGlobal.array() != _forceFeetGlobal.array()).any()) // if nan, quit to passive for debugging
     {
         return FSMStateName::PASSIVE;
     }
@@ -197,8 +201,8 @@ void State_MPC::setHighCmd(double vx, double vy, double wz)
 void State_MPC::getUserCmd()
 {
     /* Movement */
-    _vCmdBody(0) = 0.5 * invNormalize(_userValue.ly, _vxLim(0), _vxLim(1));
-    _vCmdBody(1) = 0.5 * -invNormalize(_userValue.lx, _vyLim(0), _vyLim(1));
+    _vCmdBody(0) = invNormalize(_userValue.ly, _vxLim(0), _vxLim(1));
+    _vCmdBody(1) = -invNormalize(_userValue.lx, _vyLim(0), _vyLim(1));
     _vCmdBody(2) = 0;
 
     /* Turning */
@@ -230,9 +234,13 @@ void State_MPC::calcTau()
 {
     calcFe();
     
-    //std::cout << "********forceFeetGlobal(MPC)********" << std::endl
-    //          << _forceFeetGlobal << std::endl;
-
+    
+    for (int i = 0; i < 4; ++i) {
+        std::cout << (*_contact)(i) << " ";
+    }
+    std::cout << "********forceFeetGlobal(MPC)********" << std::endl
+             << _forceFeetGlobal << std::endl;
+    
     for (int i(0); i < 4; ++i)
     {
         if ((*_contact)(i) == 0) // 摆动腿
@@ -240,11 +248,7 @@ void State_MPC::calcTau()
             _forceFeetGlobal.col(i) = _KpSwing * (_posFeetGlobalGoal.col(i) - _posFeetGlobal.col(i)) + _KdSwing * (_velFeetGlobalGoal.col(i) - _velFeetGlobal.col(i));
         }
     }
-
-    //std::cout << "********_contact(MPC)********" << std::endl;
-    //for (int i = 0; i < 4; ++i) {
-    //    std::cout << (*_contact)(i) << " ";
-    //}
+    
     //std::cout << std::endl;
 
 
@@ -282,7 +286,6 @@ void State_MPC::calcFe()
     //std::cout << "_posBody" << std::endl 
               //<< _posBody << std::endl;
 
-    Xd.setZero();
     // 设置期望状态 Xd
     for (int i = 0; i < (mpc_N - 1); i++)
         Xd.block<nx, 1>(nx * i, 0) = Xd.block<nx, 1>(nx * (i + 1), 0);
@@ -293,9 +296,7 @@ void State_MPC::calcFe()
         Xd(nx * (mpc_N - 1) + 6 + j) = _wCmdGlobal(j);
     for (int j = 0; j < 3; j++)
         Xd(nx * (mpc_N - 1) + 9 + j) = _vCmdGlobal(j);
-        
-    std::cout << "********Xd(MPC)********" << std::endl
-              << Xd << std::endl;
+
     // 单刚体动力学假设下的 Ac 和 Bc (continuous) 矩阵
     // Ac
     Ac.setZero();
@@ -324,11 +325,6 @@ void State_MPC::calcFe()
     Bd = Bc * d_time;
 
     // 构造 MPC 预测时域内的 QP
-    // standard QP formulation
-    // minimize J = 1/2 * x' * H * x + q' * x
-
-    // H: hessian             H = 2 * (Bqp.transpose() * Q * Bqp + R);
-    // q: gradient            q = 2 * Bqp.transpose() * Q * (Aqp * currentStates - Xd);
 
     // Aqp = [  A,
     //         A^2,
@@ -374,12 +370,14 @@ void State_MPC::calcFe()
     dense_hessian.setZero();
     dense_hessian = (Bqp.transpose() * Q * Bqp); 
     dense_hessian += R;
+    dense_hessian = dense_hessian * 2;
 
     gradient.setZero();
     
-    Eigen::Matrix<double, nx * mpc_N, 1> tmp_vec = Aqp * currentStates; 
-    tmp_vec -= Xd;
-    gradient = Bqp.transpose() * Q * tmp_vec;
+    Eigen::Matrix<double, nx * mpc_N, 1> error = Aqp * currentStates; // error = (Aqp * currentStates + Bqp * Fqp) - Xd
+    error -= Xd;
+    gradient = 2 * error.transpose() * Q * Bqp;
+    //gradient = Bqp.transpose() * Q * tmp_vec;
 
     ConstraintsSetup();
     solveQP();
@@ -480,8 +478,8 @@ void State_MPC::ConstraintsSetup()
 
     CI_.resize(5 * contactLegNum * mpc_N, nu * mpc_N); // CI'
     CE_.resize(3 * swingLegNum * mpc_N, nu * mpc_N); // CE'
-    ci0_.resize(5 * contactLegNum * mpc_N);
-    ce0_.resize(3 * swingLegNum * mpc_N);
+    ci0_.resize(5 * contactLegNum * mpc_N, 1);
+    ce0_.resize(3 * swingLegNum * mpc_N, 1);
 
     CI_.setZero();
     ci0_.setZero();
@@ -496,7 +494,7 @@ void State_MPC::ConstraintsSetup()
         {
             if ((*_contact)(i) == 1)
             {
-                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat; 
+                CI_.block<5, 3>(5 * contactLegNum * k + 5 * ciID, nu * k + 3 * i) = miuMat;
                 ++ciID;
             }
             else
@@ -505,6 +503,17 @@ void State_MPC::ConstraintsSetup()
                 ++ceID;
             }
         }
+        
+        for (int i = 0; i < contactLegNum * mpc_N; ++i) {
+            ci0_.segment(i * 5, 5) << 0.0, 0.0, 0.0, 0.0, 70.0;
+        }
+
+       // std::cout << "********1 ci0(MPC)********" << std::endl
+           //  << ci0_ << std::endl;
+        //std::cout << "********2 CI'(MPC)********" << std::endl
+         //    << CI_ << std::endl;
+        
+             
     }
 }
 
@@ -549,7 +558,7 @@ void State_MPC::solveQP()
 
     for (int i = 0; i < n; ++i)
     {
-        g0[i] = gradient[i];
+        g0[i] = (gradient.transpose())[i];
     }
 
     for (int i = 0; i < m; ++i)
@@ -573,9 +582,22 @@ void State_MPC::solveQP()
 
     for (int i = 0; i < 12; ++i)
     {
-        F_[i] = saturation(-x[i], Vec2(-60.0, 60.0)); // 只应用 N = 1 的计算值。这里限制了足端力的范围。
+        F_[i] = -x[i]; // 只应用 N = 1 的计算值。这里限制了足端力的范围。
                                                       // as soon as I set it to any larger numbers the solver meets nan I dont know why.
     }
+
+    /*
+    for (int i = 0; i < nu * mpc_N; ++i)
+    {
+        Fqp[i] = -x[i]; 
+    }
+    */
+    /*
+    for (int i = 0; i < mpc_N; ++i) {
+        Fqp.segment(i * nu, nu) = F_;
+    }
+    */
+    
 }
 
 Eigen::Matrix<double, 3, 3> State_MPC::CrossProduct_A(Eigen::Matrix<double, 3, 1> A)
