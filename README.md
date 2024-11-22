@@ -29,6 +29,7 @@ After starting the controller, the robot will lie on the ground of the simulator
 <p align="center">
   <img src="https://github.com/PMY9527/mpc-project/blob/main/illustration.gif" alt="Illustration">
 </p>
+VIDEO DEMO: https://www.youtube.com/watch?v=jxqS9TUR0ow 
 
 
 ## Current issues
