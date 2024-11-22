@@ -1,6 +1,6 @@
 
 ## Overview
-A Model Preditive Controller for Unitree A1 based on the framework from [unitree_guide](https://github.com/unitreerobotics/unitree_guide/tree/main/unitree_guide) using Quadprog++ as the solver. 
+A Model Predictive Controller for Unitree A1 based on the framework from [unitree_guide](https://github.com/unitreerobotics/unitree_guide/tree/main/unitree_guide) using Quadprog++ as the solver. 
 As a newbie, I have spent weeks writing the C++ codes in an easy-to-read manner, and hopefully I could help people learn something via this project.
 
 ## Environment
