@@ -1,7 +1,8 @@
 
 ## Overview
 A Model Predictive Controller for Unitree A1 based on the framework from [unitree_guide](https://github.com/unitreerobotics/unitree_guide/tree/main/unitree_guide) using Quadprog++ as the solver. 
-As a newbie, I have spent weeks writing the C++ codes in an easy-to-read manner, and hopefully I could help people learn something via this project.
+As a newbie, I have spent weeks writing the C++ codes in an easy-to-read manner, and hopefully I could help people learn something via this project. The controller locates at [State_MPC.cpp](https://github.com/PMY9527/MPC-Controller-for-Unitree-A1/blob/main/src/FSM/State_MPC.cpp) and [State_MPC.h](https://github.com/PMY9527/MPC-Controller-for-Unitree-A1/blob/main/include/FSM/State_MPC.h).
+
 
 ## Environment
 My environment is ROS Noetic and Ubuntu 20.04 running in WSL2 with [GUI enabled](https://learn.microsoft.com/en-us/windows/wsl/tutorials/gui-apps), but it should run just fine in ROS Melodic and Ubuntu 18.04.
