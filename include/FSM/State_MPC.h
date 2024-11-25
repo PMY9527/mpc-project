@@ -79,8 +79,7 @@ private:
     VecInt4 *_contact;
 
     // MPC用到的变量
-    double _mass;          // 质量
-    double max[3], min[3]; // 足底力最大值最小值
+    double _mass;       
     Eigen::Matrix<double, 5, 3> miuMat;
     Eigen::Matrix<double, 3, 3> Ic;
     Eigen::Matrix<double, nx, 1> currentStates;
